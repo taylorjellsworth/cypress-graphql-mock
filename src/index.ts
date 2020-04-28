@@ -134,16 +134,21 @@ Cypress.Commands.add("mockGraphql", (options?: MockGraphQLOptions) => {
 
   cy.on("window:before:load", win => {
     const originalFetch = win.fetch;
-    function fetch(input: RequestInfo, init?: RequestInit) {
+    async function fetch(input: RequestInfo, init?: RequestInit) {
       if (typeof input !== "string") {
         throw new Error(
-          "Currently only support fetch(url, options), saw fetch(Request)"
+          `Currently only support fetch(url, options), saw fetch(Request), recieved: ${JSON.stringify(input)}`
         );
       }
       if (input.indexOf(endpoint) !== -1 && init && init.method === "POST") {
         const payload: GQLRequestPayload = JSON.parse(init.body as string);
         const { operationName, query, variables } = payload;
         const rootValue = getRootValue(currentOps, operationName, variables);
+
+        // Only will catch mocked requests that match the given operationName.  Non-mocked graphQl requests will hit real endpoint
+        if (rootValue === undefined) {
+          return originalFetch(input, init);
+        }
 
         if (
           // Additional checks here because of transpilation.
@@ -166,7 +171,7 @@ Cypress.Commands.add("mockGraphql", (options?: MockGraphQLOptions) => {
         }
 
         return graphql({
-          schema,
+          schema: executableSchema,
           source: query,
           variableValues: variables,
           operationName,
@@ -217,7 +222,7 @@ function getRootValue(
   variables: any
 ) {
   if (!operationName || !operations[operationName]) {
-    return {};
+    return undefined;
   }
   const op = operations[operationName];
   if (typeof op === "function") {
